@@ -25,6 +25,8 @@ func (dt DataType) String() string {
 	}
 }
 
+type StringValue string
+
 // ListValue - структура для хранения списка
 type ListValue struct {
 	Items []interface{}
