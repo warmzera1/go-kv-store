@@ -50,3 +50,15 @@ func NewSet() *SetValue {
 		Items: make(map[interface{}]struct{}),
 	}
 }
+
+// HashValue - структура для хранения хеша (поля и значения)
+type HashValue struct {
+	Fields map[string]interface{}
+}
+
+// NewHash - констркутор для хеша
+func NewHash() *HashValue {
+	return &HashValue{
+		Fields: make(map[string]interface{}),
+	}
+}
