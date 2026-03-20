@@ -1,5 +1,7 @@
 package store
 
+import "time"
+
 type DataType int
 
 const (
@@ -61,4 +63,9 @@ func NewHash() *HashValue {
 	return &HashValue{
 		Fields: make(map[string]interface{}),
 	}
+}
+
+// ExpiryInfo - хранит информацию о времени жизни ключа
+type ExpiryInfo struct {
+	ExpiresAt time.Time // когда ключ должен быть удален
 }
