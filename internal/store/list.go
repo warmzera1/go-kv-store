@@ -97,6 +97,11 @@ func (s *Store) RPop(key string) (interface{}, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	// Проверяем истечение и удаляем, если нужно
+	if s.isExpiredAndClean(key) {
+		return nil, nil
+	}
+
 	// 2. Проверить существует ли ключ
 	val, exists := s.data[key]
 	if !exists {
@@ -141,39 +146,44 @@ func (s *Store) LPop(key string) (interface{}, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	// 2. Проверить, существует ли ключ
+	// 2. Проверяем, истек ли ключ, если да - удаляем
+	if s.isExpiredAndClean(key) {
+		return nil, nil
+	}
+
+	// 3. Проверить, существует ли ключ
 	val, exists := s.data[key]
 	if !exists {
 		return nil, fmt.Errorf("key %s does not exist", key)
 	}
 
-	// 3. Проверить, что это список
+	// 4. Проверить, что это список
 	if s.types[key] != TypeList {
 		return nil, fmt.Errorf("key %s exists but not is a list (type:%s)",
 			key, s.types[key].String())
 	}
 
-	// 4. Получаем список
+	// 5. Получаем список
 	list := val.(*ListValue)
 
-	// 5. Проверяем, что не список не пустой
+	// 6. Проверяем, что не список не пустой
 	if len(list.Items) == 0 {
 		return nil, fmt.Errorf("list %s is empty", key)
 	}
 
-	// 6. Берем первый элемент
+	// 7. Берем первый элемент
 	item := list.Items[0]
 
-	// 7. Создаем новый массив без первого элемента
+	// 8. Создаем новый массив без первого элемента
 	list.Items = list.Items[1:]
 
-	// 8. Если список стал пустым - удаляем ключ
+	// 9. Если список стал пустым - удаляем ключ
 	if len(list.Items) == 0 {
 		delete(s.data, key)
 		delete(s.types, key)
 	}
 
-	// 9. Обновляет статистику и возвращаем результат
+	// 10. Обновляет статистику и возвращаем результат
 	s.updateStats(GetOp)
 	return item, nil
 }
@@ -207,27 +217,32 @@ func (s *Store) LIndex(key string, index int) (interface{}, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	// 2. Проверяем, существует ли ключ
+	// 2. Проверяем, истек ли ключ (без удаления)
+	if s.isExpired(key) {
+		return 0, nil
+	}
+
+	// 3. Проверяем, существует ли ключ
 	val, exists := s.data[key]
 	if !exists {
 		return nil, fmt.Errorf("key %s doest not exist", key)
 	}
 
-	// 3. Проверяем тип
+	// 4. Проверяем тип
 	if s.types[key] != TypeList {
 		return nil, fmt.Errorf("key %s is exists but is not a list (type:%s)",
 			key, s.types[key].String())
 	}
 
-	// 4. Получаем список
+	// 5. Получаем список
 	list := val.(*ListValue)
 
-	// 5. Обрабатываем отрицательный индекс
+	// 6. Обрабатываем отрицательный индекс
 	if index < 0 {
 		index = len(list.Items) + index
 	}
 
-	// 6. Проверяем границы
+	// 7. Проверяем границы
 	if index < 0 || index >= len(list.Items) {
 		return nil, fmt.Errorf("index %d out of range (list size: %d)",
 			index, len(list.Items))
@@ -242,31 +257,36 @@ func (s *Store) LIndex(key string, index int) (interface{}, error) {
 // Поддерживает отрицательные индексы (-1 = последний, -2 = предпоследний)
 func (s *Store) LRange(key string, start, stop int) (interface{}, error) {
 	// 1. Блокируем для чтения
-	s.mu.RLock()
-	defer s.mu.RUnlock()
+	s.mu.Lock()
+	defer s.mu.Unlock()
 
-	// 2. Проверяем, существует ли ключ
+	// 2. Проверяем, истек ли ключ, если да - удаляем
+	if s.isExpiredAndClean(key) {
+		return nil, nil
+	}
+
+	// 3. Проверяем, существует ли ключ
 	val, exist := s.data[key]
 	if !exist {
 		return []interface{}{}, nil
 	}
 
-	// 3. Проверяем, что это список
+	// 4. Проверяем, что это список
 	if s.types[key] != TypeList {
 		return nil, fmt.Errorf("key %s is exists but is not a list (type:%s)",
 			key, s.types[key].String())
 	}
 
-	// 4. Получаем список
+	// 5. Получаем список
 	list := val.(*ListValue)
 
-	// 5. Получаем длину списка
+	// 6. Получаем длину списка
 	length := len(list.Items)
 	if length == 0 {
 		return []interface{}{}, nil
 	}
 
-	// 6. Нормализуем индексы (обрабатываем отрицательные)
+	// 7. Нормализуем индексы (обрабатываем отрицательные)
 	if start < 0 {
 		start = length + start
 	}
@@ -275,7 +295,7 @@ func (s *Store) LRange(key string, start, stop int) (interface{}, error) {
 		stop = length + stop
 	}
 
-	// 7. Проверяем границы
+	// 8. Проверяем границы
 	if start < 0 {
 		start = 0
 	}
@@ -288,14 +308,14 @@ func (s *Store) LRange(key string, start, stop int) (interface{}, error) {
 		return []interface{}{}, nil
 	}
 
-	// 8. Создаем срез результата нужного размера
+	// 9. Создаем срез результата нужного размера
 	resultSize := stop - start + 1
 	result := make([]interface{}, resultSize)
 
-	// 9. Копируем элементы
+	// 10. Копируем элементы
 	copy(result, list.Items[start:stop+1])
 
-	// 10 Обновляем статистику
+	// 11 Обновляем статистику
 	s.updateStats(GetOp)
 	return result, nil
 }

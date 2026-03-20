@@ -54,7 +54,12 @@ func (s *Store) TTL(key string) (int, error) {
 		return -2, nil
 	}
 
-	// 3. Проверяем, есть ли ключ в expiry
+	// 3. Проверяем истек ли ключ (без удаления)
+	if s.isExpired(key) {
+		return -2, nil
+	}
+
+	// 4. Проверяем, есть ли ключ в expiry
 	// Если есть, получаем значение
 	expiresAt, exists := s.expiry[key]
 	if !exists {
@@ -99,4 +104,38 @@ func (s *Store) Persist(key string) (bool, error) {
 	delete(s.expiry, key)
 
 	return true, nil
+}
+
+// isExpired - проверяет, истек ли ключ (без удаления)
+func (s *Store) isExpired(key string) bool {
+	// Получаем время истечения, если установлено
+	expiresAt, hasExpiry := s.expiry[key]
+	if !hasExpiry {
+		// Нет TTL - ключ не может истечь
+		return false
+	}
+
+	// Сравниваем текущее время с временем истечения
+	return time.Now().After(expiresAt)
+}
+
+// isExpiredAndClean - проверяет истек ли ключ, если да - удаляет
+func (s *Store) isExpiredAndClean(key string) bool {
+	// Получаем время истечения, если установлено
+	expiresAt, hasExpiry := s.expiry[key]
+	if !hasExpiry {
+		return false
+	}
+
+	// Проверяем, наступило ли время истечения
+	if time.Now().After(expiresAt) {
+		// Ключ истек - удаляем его из всех хранилищ
+		delete(s.data, key)
+		delete(s.types, key)
+		delete(s.expiry, key)
+		return true
+	}
+
+	// Ключ еще не истек
+	return false
 }

@@ -111,10 +111,15 @@ func (s *Store) SRem(key string, values ...interface{}) error {
 // SIsMember - проверяет, есть ли элемент в множестве
 func (s *Store) SIsMember(key string, value interface{}) (bool, error) {
 	// 1 Блокируем на чтение
-	s.mu.RLock()
-	defer s.mu.RUnlock()
+	s.mu.Lock()
+	defer s.mu.Unlock()
 
-	// 2. Проверка, существует ли ключ
+	// 2. Проверяем истек ли ключ, если да - удаляем
+	if s.isExpiredAndClean(key) {
+		return false, nil
+	}
+
+	// 3. Проверка, существует ли ключ
 	val, exists := s.data[key]
 	if !exists {
 		return false, nil
@@ -125,26 +130,31 @@ func (s *Store) SIsMember(key string, value interface{}) (bool, error) {
 			key, s.types[key].String())
 	}
 
-	// 3. Получаем множество
+	// 4. Получаем множество
 	set := val.(*SetValue)
 
-	// 4. Проверяем наличие элемента
+	// 5. Проверяем наличие элемента
 	_, found := set.Items[value]
 
-	// 5. Обновляем статистику
+	// 6. Обновляем статистику
 	s.updateStats(GetOp)
 
-	// 6. Возвращаем результат
+	// 7. Возвращаем результат
 	return found, nil
 }
 
 // SMembers - возвращает все элементы множества
 func (s *Store) SMembers(key string) ([]interface{}, error) {
 	// 1. Блокируем для чтения
-	s.mu.RLock()
-	defer s.mu.RUnlock()
+	s.mu.Lock()
+	defer s.mu.Unlock()
 
-	// 2. Проверка существования ключа и типа, если ключ существует
+	// 2. Проверка, истек ли ключ, если да - удаляем
+	if s.isExpiredAndClean(key) {
+		return nil, nil
+	}
+
+	// 3. Проверка существования ключа и типа, если ключ существует
 	val, exists := s.data[key]
 	if !exists {
 		return []interface{}{}, nil
@@ -178,7 +188,12 @@ func (s *Store) SCard(key string) (int, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	// 2. Проверяем, существует ли ключ
+	// 2. Проверяем, есть ли ключ (без удаления)
+	if s.isExpired(key) {
+		return 0, nil
+	}
+
+	// 3. Проверяем, существует ли ключ
 	val, exists := s.data[key]
 	if !exists {
 		return 0, nil

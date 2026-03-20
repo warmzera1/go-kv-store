@@ -7,7 +7,7 @@ func (s *Store) Set(key, value string) {
 
 	// 3. Сохраняем значение
 	s.data[key] = StringValue(value)
-	s.data[key] = TypeString
+	s.types[key] = TypeString
 
 	// 4. Обновляем статистику
 	s.updateStats(SetOp)
@@ -15,19 +15,24 @@ func (s *Store) Set(key, value string) {
 
 func (s *Store) Get(key string) (string, bool) {
 	// 1. Блокируем данные для чтения
-	s.mu.RLock()
-	defer s.mu.RUnlock()
+	s.mu.Lock()
+	defer s.mu.Unlock()
 
-	// 2. Проверяем, существует ли ключ и проверяем тип
+	// 2. Проверяем, истек ли ключ, если да - удаляем
+	if s.isExpiredAndClean(key) {
+		return "", false
+	}
+
+	// 3. Проверяем, существует ли ключ и проверяем тип
 	val, exists := s.data[key]
 	if !exists || s.types[key] != TypeString {
 		return "", false
 	}
 
-	// 3. Обновляем статистику
+	// 4. Обновляем статистику
 	s.updateStats(GetOp)
 
-	// 4. Возвращаем результат
+	// 5. Возвращаем результат
 	return string(val.(StringValue)), true
 }
 

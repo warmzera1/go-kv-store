@@ -60,31 +60,36 @@ func (s *Store) HGet(key string, field string) (interface{}, error) {
 	}
 
 	// 2. Блокируем для чтения
-	s.mu.RLock()
-	defer s.mu.RUnlock()
+	s.mu.Lock()
+	defer s.mu.Unlock()
 
-	// 3. Существует ли ключ
+	// 3. Проверяем истечение и удаляем, если нужно
+	if s.isExpiredAndClean(key) {
+		return nil, nil
+	}
+
+	// 4. Существует ли ключ
 	val, exists := s.data[key]
 	if !exists {
 		return nil, nil
 	}
 
-	// 4. Проверяем тип
+	// 5. Проверяем тип
 	if s.types[key] != TypeHash {
 		return nil, fmt.Errorf("key %s exists but is not a hash (type: %s)",
 			key, s.types[key].String())
 	}
 
-	// 5. Получение хеша
+	// 6. Получение хеша
 	hash := val.(*HashValue)
 
-	// 6. Получение значения поля
+	// 7. Получение значения поля
 	value, exists := hash.Fields[field]
 	if !exists {
 		return nil, nil
 	}
 
-	// 7. Обновляем статистику
+	// 8. Обновляем статистику
 	s.updateStats(GetOp)
 
 	return value, nil
@@ -94,8 +99,13 @@ func (s *Store) HGet(key string, field string) (interface{}, error) {
 // Если ключа нет - возвращает пустую map, nil
 func (s *Store) HGetAll(key string) (map[string]interface{}, error) {
 	// 1. Блокируем для чтения
-	s.mu.RLock()
-	defer s.mu.RUnlock()
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	// Проверяем истечение и удаляем, если нужно
+	if s.isExpiredAndClean(key) {
+		return map[string]interface{}{}, nil
+	}
 
 	// 2. Существует ли ключ
 	val, exists := s.data[key]
