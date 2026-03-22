@@ -1,55 +1,55 @@
 package main
 
-// import (
-// 	"fmt"
-// 	"time"
+import (
+	"fmt"
+	"os"
+	"os/signal"
+	"syscall"
+	"time"
 
-// 	"github.com/warmzera1/kv-store/internal/store"
-// )
+	"github.com/warmzera1/kv-store/internal/server"
+	"github.com/warmzera1/kv-store/internal/store"
+)
 
-// func main() {
-// 	s := store.New()
+func main() {
+	fmt.Println("Starting KV-Store server...")
 
-// 	// Запускаем фоновую горутину для активного удаления (если реализовали)
-// 	// s.StartTTLCleaner(1 * time.Second)
+	// 1. Создаем хранилище
+	s := store.New()
 
-// 	fmt.Println("=== Тест TTL в Get ===")
-// 	testTTLinGet(s)
+	// 2. Запускаем TTL
+	s.StartTTLCleaner(1 * time.Second)
 
-// }
+	// 3. Создаем TCP сервер
+	svr := server.New(":6379", s)
 
-// func testTTLinGet(s *store.Store) {
-// 	// 1. Устанавливаем ключ с TTL 3 секунды
-// 	fmt.Println("1. Set('temp', 'value') и Expire 3 секунды")
-// 	s.Set("temp", "value")
-// 	s.Expire("temp", 3)
+	// 4. Настраиваем graceful shutdown
+	// 4.1 Создаем канал для сигналов
+	// sigChan - это канал для передачи сигналов
+	// Вместимость 1, значит можем сохранить 1 сигнал в очереди
+	sigChan := make(chan os.Signal, 1)
 
-// 	// 2. Сразу проверяем - ключ должен быть
-// 	val, ok := s.Get("temp")
-// 	fmt.Printf("   Сразу после установки: val='%v', ok=%v\n", val, ok)
+	// 5. Подписываемся на сигналы
+	// 	SIGINT - Cntrl + C
+	// SIGTERM - команда kill
+	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
 
-// 	// 3. Проверяем TTL
-// 	ttl, _ := s.TTL("temp")
-// 	fmt.Printf("   TTL: %d секунд\n", ttl)
+	// 5.1 Запускаем горутину слушателя
+	go func() {
+		// Ждем сигнал (блокируемся, пока канал не получит значение)
+		<-sigChan // Читаем из канала, ждем
+		fmt.Println("\nShutdown down server...")
+		if err := svr.Stop(); err != nil {
+			fmt.Printf("Error stoping server: %v\n", err)
+		}
 
-// 	// 4. Ждем 2 секунды (ключ еще жив)
-// 	fmt.Println("   Ждем 2 секунды...")
-// 	time.Sleep(2 * time.Second)
+		// Завершаем программу
+		os.Exit(0)
+	}()
 
-// 	val, ok = s.Get("temp")
-// 	fmt.Printf("   После 2 секунд: val='%v', ok=%v\n", val, ok)
-// 	ttl, _ = s.TTL("temp")
-// 	fmt.Printf("   TTL: %d секунд\n", ttl)
-
-// 	// 5. Ждем еще 2 секунды (ключ должен истечь)
-// 	fmt.Println("   Ждем еще 2 секунды...")
-// 	time.Sleep(2 * time.Second)
-
-// 	val, ok = s.Get("temp")
-// 	fmt.Printf("   После 4 секунд: val='%v', ok=%v\n", val, ok)
-
-// 	// Проверяем TTL (должен вернуть -2)
-// 	ttl, _ = s.TTL("temp")
-// 	fmt.Printf("   TTL: %d (ожидается -2 - ключ не существует)\n", ttl)
-
-// }
+	// 6. Запускаем сервер (блокируем выполнение)
+	if err := svr.Start(); err != nil {
+		fmt.Printf("Server error: %v\n", err)
+		os.Exit(1)
+	}
+}

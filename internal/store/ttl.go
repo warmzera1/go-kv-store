@@ -139,3 +139,40 @@ func (s *Store) isExpiredAndClean(key string) bool {
 	// Ключ еще не истек
 	return false
 }
+
+// CleanExpiredKeys - удаляет все истекшие ключи
+func (s *Store) CleanExpiredKeys() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	now := time.Now()
+	for key, expiresAt := range s.expiry {
+		if now.After(expiresAt) {
+			delete(s.data, key)
+			delete(s.types, key)
+			delete(s.expiry, key)
+		}
+	}
+}
+
+// StartTTLCleaner - запускает фоновую горутину для удаления истекших ключей
+func (s *Store) StartTTLCleaner(interval time.Duration) {
+
+	// 1. Запуска горутину
+	// go - запусти эту функцию параллельно, не жди
+	go func() {
+
+		// 2. Создаем тикер (будильник)
+		ticker := time.NewTicker(interval)
+
+		// 3. Гарантирует остановку тикера
+		defer ticker.Stop()
+
+		// 4. Бесконечный цикл
+		for range ticker.C {
+
+			// Каждую секунду выполняем
+			s.CleanExpiredKeys()
+		}
+	}()
+}
