@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"fmt"
 	"net"
+	"strconv"
 	"strings"
 
 	"github.com/warmzera1/kv-store/internal/store"
@@ -120,9 +121,13 @@ func (s *Server) executeCommand(cmd string) string {
 
 	switch command {
 
-	// 1. PING - проверка соединение
+	// 1. PING - проверка соединения
 	case "PING":
 		return "PONG"
+
+	// 2. QUIT - закрытие соединения
+	case "QUIT":
+		return "OK"
 
 	// 2. SET - установить значение
 	case "SET":
@@ -157,11 +162,189 @@ func (s *Server) executeCommand(cmd string) string {
 		s.store.Delete(key)
 		return "OK"
 
-	case "QUIT":
-		return "OK"
+	// 5. Expire - установить время жизни ключа
+	case "EXPIRE":
+		if len(parts) < 3 {
+			return "ERROR: EXPIRE requires key and seconds"
+		}
+		key := parts[1]
+		seconds := 0
+		fmt.Sscanf(parts[2], "%d", &seconds)
+		ok, err := s.store.Expire(key, seconds)
+		if err != nil {
+			return fmt.Sprintf("ERROR: %v", err)
+		}
+		if ok {
+			return "1"
+		}
+		return "0"
+
+	// 6. TTL - время жизни ключа
+	case "TTL":
+		if len(parts) < 2 {
+			return "ERROR: TTL requires key"
+		}
+		key := parts[1]
+
+		ttl, err := s.store.TTL(key)
+		if err != nil {
+			return fmt.Sprintf("ERROR: %v", err)
+		}
+
+		// -2 нет ключа, -1 нет TTL, >0 секунды
+		return fmt.Sprintf("%d", ttl)
+
+	// 7. PERSIST - удаляет TTL у ключа
+	case "PERSIST":
+		if len(parts) < 2 {
+			return "ERROR: PERSIST requires key"
+		}
+		key := parts[1]
+
+		ok, err := s.store.Persist(key)
+		if err != nil {
+			return fmt.Sprintf("ERROR: %v", err)
+		}
+		if ok {
+			// TTL - удален
+			return "1"
+		}
+
+		// TTL - не был установлен или нет ключа
+		return "0"
+
+	// 8. LPUSH - добавляет элемент в начало списка
+	case "LPUSH":
+		if len(parts) < 3 {
+			return "ERROR: LPUSH requires key and value(s)"
+		}
+		key := parts[1]
+		values := parts[2:]
+
+		// Преобразовываем []string в []interface{}
+		interfaceValues := make([]interface{}, len(values))
+		for i, v := range values {
+			interfaceValues[i] = v
+		}
+
+		// Выполняем LPush
+		err := s.store.LPush(key, interfaceValues...)
+		if err != nil {
+			return fmt.Sprintf("ERROR: %v", err)
+		}
+
+		// Получаем и возвращаем новую длину списка
+		lenght, _ := s.store.LLen(key)
+		return fmt.Sprintf("%d", lenght)
+
+	// 9. RPush - добавляет элемент в конец списка
+	case "RPUSH":
+		if len(parts) < 3 {
+			return "ERROR: RPUSH requires key and value(s)"
+		}
+		key := parts[1]
+		values := parts[2:]
+
+		interfaceValues := make([]interface{}, len(values))
+		for i, v := range values {
+			interfaceValues[i] = v
+		}
+
+		// Выполняем RPush
+		err := s.store.RPush(key, interfaceValues...)
+		if err != nil {
+			return fmt.Sprintf("ERROR: %v", err)
+		}
+
+		// Получаем и возвращаем новую длину списка
+		lenght, _ := s.store.LLen(key)
+		return fmt.Sprintf("%d", lenght)
+
+	// 10. LPop - удаляет первый элемент
+	case "LPOP":
+		if len(parts) < 2 {
+			return "ERROR: LPOP requires key"
+		}
+		key := parts[1]
+		value, err := s.store.LPop(key)
+		if err != nil {
+			return "(nil)"
+		}
+		return fmt.Sprintf("%v", value)
+
+	// 11. RPop - удаляет последний элемент
+	case "RPOP":
+		if len(parts) < 2 {
+			return "ERROR: RPOP requires key"
+		}
+		key := parts[1]
+		value, err := s.store.RPop(key)
+		if err != nil {
+			return "(nil)"
+		}
+		return fmt.Sprintf("%v", value)
+
+	// LLen - возвращает длину списка
+	case "LLEN":
+		if len(parts) < 2 {
+			return "ERROR: LLEN requires key"
+		}
+		key := parts[1]
+		length, err := s.store.LLen(key)
+		if err != nil {
+			return fmt.Sprintf("ERROR: %v", err)
+		}
+		return fmt.Sprintf("%d", length)
+
+	// LIndex - возвращает элемент по индексу
+	case "LINDEX":
+		if len(parts) < 3 {
+			return "ERROR: LINDEX requires key and index"
+		}
+		key := parts[1]
+		index, err := strconv.Atoi(parts[2])
+		if err != nil {
+			return "ERROR: invalid index"
+		}
+		value, err := s.store.LIndex(key, index)
+		if err != nil {
+			return "(nil)"
+		}
+
+		return fmt.Sprintf("%v", value)
+
+	// LRange - возвращает диапазон элементов
+	case "LRANGE":
+		if len(parts) < 4 {
+			return "ERROR: LRANGE requires key, start and stop"
+		}
+		key := parts[1]
+		start, err := strconv.Atoi(parts[2])
+		if err != nil {
+			return "ERROR: invalid start"
+		}
+		stop, err := strconv.Atoi(parts[3])
+		if err != nil {
+			return "ERROR: invalid stop"
+		}
+		items, err := s.store.LRange(key, start, stop)
+		if err != nil {
+			return fmt.Sprintf("ERROR: %v", err)
+		}
+		if len(items) == 0 {
+			return "empty array"
+		}
+
+		result := make([]string, len(items))
+		for i, v := range items {
+			result[i] = fmt.Sprintf("%v", v)
+		}
+
+		return strings.Join(result, "\n")
 
 	// Неизвестная команда
 	default:
 		return fmt.Sprintf("ERROR: unknown command '%s'", command)
 	}
+
 }

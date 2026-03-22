@@ -255,7 +255,7 @@ func (s *Store) LIndex(key string, index int) (interface{}, error) {
 // start - начальный идекс (включительно)
 // stop - конечный индекс (включительно)
 // Поддерживает отрицательные индексы (-1 = последний, -2 = предпоследний)
-func (s *Store) LRange(key string, start, stop int) (interface{}, error) {
+func (s *Store) LRange(key string, start, stop int) ([]interface{}, error) {
 	// 1. Блокируем для чтения
 	s.mu.Lock()
 	defer s.mu.Unlock()
