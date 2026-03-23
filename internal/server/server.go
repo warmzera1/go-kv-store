@@ -327,6 +327,7 @@ func (s *Server) executeCommand(cmd string) string {
 		if err != nil {
 			return "ERROR: invalid stop"
 		}
+
 		items, err := s.store.LRange(key, start, stop)
 		if err != nil {
 			return fmt.Sprintf("ERROR: %v", err)
@@ -349,10 +350,12 @@ func (s *Server) executeCommand(cmd string) string {
 		}
 		key := parts[1]
 		members := parts[2:]
+
 		membersInterface := make([]interface{}, len(members))
 		for k, v := range members {
 			membersInterface[k] = v
 		}
+
 		added, err := s.store.SAdd(key, membersInterface...)
 		if err != nil {
 			return fmt.Sprintf("ERROR: %v", err)
@@ -367,10 +370,12 @@ func (s *Server) executeCommand(cmd string) string {
 		}
 		key := parts[1]
 		members := parts[2:]
+
 		membersInterface := make([]interface{}, len(members))
 		for k, v := range members {
 			membersInterface[k] = v
 		}
+
 		removed, err := s.store.SRem(key, membersInterface...)
 		if err != nil {
 			return fmt.Sprintf("ERROR: %v", err)
@@ -385,6 +390,7 @@ func (s *Server) executeCommand(cmd string) string {
 		}
 		key := parts[1]
 		value := parts[2]
+
 		exists, err := s.store.SIsMember(key, value)
 		if err != nil {
 			return fmt.Sprintf("ERROR: %v", err)
@@ -392,6 +398,7 @@ func (s *Server) executeCommand(cmd string) string {
 		if exists {
 			return "1"
 		}
+
 		return "0"
 
 	// SMEMBERS - возвращает все элементы в множестве
@@ -400,6 +407,7 @@ func (s *Server) executeCommand(cmd string) string {
 			return "ERROR: SMEMBERS requires key"
 		}
 		key := parts[1]
+
 		members, err := s.store.SMembers(key)
 		if err != nil {
 			return fmt.Sprintf("ERROR: %v", err)
@@ -407,6 +415,7 @@ func (s *Server) executeCommand(cmd string) string {
 		if len(members) == 0 {
 			return "(empty set)"
 		}
+
 		result := make([]string, len(members))
 		for i, v := range members {
 			result[i] = fmt.Sprintf("%v", v)
@@ -420,12 +429,88 @@ func (s *Server) executeCommand(cmd string) string {
 			return "ERROR: SCARD requires key"
 		}
 		key := parts[1]
+
 		count, err := s.store.SCard(key)
 		if err != nil {
 			return fmt.Sprintf("ERROR: %v", err)
 		}
 
 		return fmt.Sprintf("%d", count)
+
+	// HSET - устанавливает поле в хеше
+	case "HSET":
+		if len(parts) < 4 {
+			return "ERROR: HSET requires key, field and value"
+		}
+		key := parts[1]
+		field := parts[2]
+		value := strings.Join(parts[3:], " ")
+
+		err := s.store.HSet(key, field, value)
+		if err != nil {
+			return fmt.Sprintf("ERROR: %v", err)
+		}
+
+		return "OK"
+
+	// HGET - получить поле поключу
+	case "HGET":
+		if len(parts) < 3 {
+			return "ERROR: HGET requires key and field"
+		}
+		key := parts[1]
+		field := parts[2]
+
+		value, err := s.store.HGet(key, field)
+		if err != nil {
+			return fmt.Sprintf("ERROR: %v", err)
+		}
+
+		if value == nil {
+			return "(nil)"
+		}
+
+		return fmt.Sprintf("%v", value)
+
+	// HGETALL - получить все поля по ключу
+	case "HGETALL":
+		if len(parts) < 2 {
+			return "ERROR: HGETALL requires key"
+		}
+
+		key := parts[1]
+		fields, err := s.store.HGetAll(key)
+
+		if err != nil {
+			return fmt.Sprintf("ERROR: %v", err)
+		}
+
+		if len(fields) == 0 {
+			return "(empty hash)"
+		}
+
+		// Форматируем: каждое поле и значение с новой строки
+		result := make([]string, 0, len(fields)*2)
+		for k, v := range fields {
+			result = append(result, k, fmt.Sprintf("%v", v))
+		}
+
+		return strings.Join(result, "\n")
+
+	// HDEL - удаляет одно или несколько полей из хеша
+	case "HDEL":
+		if len(parts) < 3 {
+			return "ERROR: HDEL requires key and field(s)"
+		}
+		key := parts[1]
+		fields := parts[2:]
+
+		err := s.store.HDel(key, fields...)
+		if err != nil {
+			return fmt.Sprintf("ERROR: %v", err)
+		}
+
+		return "OK"
 
 	// Неизвестная команда
 	default:
