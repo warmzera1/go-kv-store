@@ -6,10 +6,10 @@ import "fmt"
 // Если элемент существует - игнорируется
 // Если ключ не сущетсвуте - создает новое множество
 // Если ключ существует, но не множество - возвращает ошибку
-func (s *Store) SAdd(key string, values ...interface{}) error {
+func (s *Store) SAdd(key string, values ...interface{}) (int, error) {
 	// 1. Проверяем, есть ли что добавить
 	if len(values) == 0 {
-		return nil
+		return 0, nil
 	}
 
 	// 2. Блокируем хранилище для записи
@@ -20,7 +20,7 @@ func (s *Store) SAdd(key string, values ...interface{}) error {
 	if val, exists := s.data[key]; exists {
 		// 4. Проверяем, что тип - множество
 		if s.types[key] != TypeSet {
-			return fmt.Errorf("key %s exists but is not a set (type: %s)",
+			return 0, fmt.Errorf("key %s exists but is not a set (type: %s)",
 				key, s.types[key].String())
 		}
 
@@ -42,7 +42,7 @@ func (s *Store) SAdd(key string, values ...interface{}) error {
 			s.updateStats(SetOp)
 		}
 
-		return nil
+		return added, nil
 	}
 
 	// 8. СЛУЧАЙ 2 - Ключа нет - создаем новое множество
@@ -50,22 +50,29 @@ func (s *Store) SAdd(key string, values ...interface{}) error {
 	s.types[key] = TypeSet
 	set := s.data[key].(*SetValue)
 
+	added := 0
 	for _, v := range values {
-		set.Items[v] = struct{}{}
+		if _, exists := set.Items[v]; !exists {
+			set.Items[v] = struct{}{}
+			added++
+		}
 	}
 
-	s.updateStats(SetOp)
-	return nil
+	if added > 0 {
+		s.updateStats(SetOp)
+	}
+
+	return added, nil
 }
 
 // SRem - удаляет один или несколько элементов из множества
 // Если ключа нет - возвращаем nil
 // Если ключ есть, но не множество - ошибка
 // Если множество после удаления, становится пустым - удаляем ключ
-func (s *Store) SRem(key string, values ...interface{}) error {
+func (s *Store) SRem(key string, values ...interface{}) (int, error) {
 	// 1. Проверка на пустой ввод
 	if len(values) == 0 {
-		return nil
+		return 0, nil
 	}
 
 	// 2. Блокируем операцию для записи
@@ -75,7 +82,7 @@ func (s *Store) SRem(key string, values ...interface{}) error {
 	// 3. СЛУЧАЙ 1 - Проверка, существует ли ключ
 	if val, exists := s.data[key]; exists {
 		if s.types[key] != TypeSet {
-			return fmt.Errorf("key %s is exists but is not a set (type:%s)",
+			return 0, fmt.Errorf("key %s is exists but is not a set (type:%s)",
 				key, s.types[key].String())
 		}
 
@@ -103,9 +110,11 @@ func (s *Store) SRem(key string, values ...interface{}) error {
 		if removed > 0 {
 			s.updateStats(DelOp)
 		}
+
+		return removed, nil
 	}
 
-	return nil
+	return 0, nil
 }
 
 // SIsMember - проверяет, есть ли элемент в множестве

@@ -342,6 +342,91 @@ func (s *Server) executeCommand(cmd string) string {
 
 		return strings.Join(result, "\n")
 
+	// SADD - добавляет элемент в множество
+	case "SADD":
+		if len(parts) < 3 {
+			return "ERROR: SADD requires key and value(s)"
+		}
+		key := parts[1]
+		members := parts[2:]
+		membersInterface := make([]interface{}, len(members))
+		for k, v := range members {
+			membersInterface[k] = v
+		}
+		added, err := s.store.SAdd(key, membersInterface...)
+		if err != nil {
+			return fmt.Sprintf("ERROR: %v", err)
+		}
+
+		return fmt.Sprintf("%d", added)
+
+		// SREM - удаляет один или несколько элементов
+	case "SREM":
+		if len(parts) < 3 {
+			return "ERROR: SREM requires key and value(s)"
+		}
+		key := parts[1]
+		members := parts[2:]
+		membersInterface := make([]interface{}, len(members))
+		for k, v := range members {
+			membersInterface[k] = v
+		}
+		removed, err := s.store.SRem(key, membersInterface...)
+		if err != nil {
+			return fmt.Sprintf("ERROR: %v", err)
+		}
+
+		return fmt.Sprintf("%d", removed)
+
+	// SISMEMBER - есть ли элемент в множестве
+	case "SISMEMBER":
+		if len(parts) < 3 {
+			return "ERROR: SISMEMBER requires key and value"
+		}
+		key := parts[1]
+		value := parts[2]
+		exists, err := s.store.SIsMember(key, value)
+		if err != nil {
+			return fmt.Sprintf("ERROR: %v", err)
+		}
+		if exists {
+			return "1"
+		}
+		return "0"
+
+	// SMEMBERS - возвращает все элементы в множестве
+	case "SMEMBERS":
+		if len(parts) < 2 {
+			return "ERROR: SMEMBERS requires key"
+		}
+		key := parts[1]
+		members, err := s.store.SMembers(key)
+		if err != nil {
+			return fmt.Sprintf("ERROR: %v", err)
+		}
+		if len(members) == 0 {
+			return "(empty set)"
+		}
+		result := make([]string, len(members))
+		for i, v := range members {
+			result[i] = fmt.Sprintf("%v", v)
+		}
+
+		return strings.Join(result, "\n")
+
+	// SCARD - возвращает кол-во элементов в множестве
+	case "SCARD":
+		if len(parts) < 2 {
+			return "ERROR: SCARD requires key"
+		}
+		key := parts[1]
+		count, err := s.store.SCard(key)
+		if err != nil {
+			return fmt.Sprintf("ERROR: %v", err)
+		}
+
+		return fmt.Sprintf("%d", count)
+
 	// Неизвестная команда
 	default:
 		return fmt.Sprintf("ERROR: unknown command '%s'", command)
