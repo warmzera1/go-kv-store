@@ -17,9 +17,8 @@ import (
 
 // Server - представляет ТСР сервер
 type Server struct {
-	addr      string              // адрес для прослушивания (например:6379)
-	store     *core.Store         // ссылка на хранилище
-	stringCmd str.InterfaceString // ссылка на пакет str
+	addr      string // адрес для прослушивания (например:6379)
+	stringCmd str.InterfaceString
 	listCmd   list.ListInterface
 	setCmd    set.SetInterface
 	hashCmd   hash.HashInterface
@@ -34,7 +33,6 @@ func New(addr string, s *core.Store) *Server {
 
 	return &Server{
 		addr:      addr,
-		store:     s,
 		stringCmd: str.New(s, ttlStore), // создаем обертку
 		listCmd:   list.New(s, ttlStore),
 		setCmd:    set.New(s, ttlStore),
