@@ -5,20 +5,19 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
-	"time"
 
 	"github.com/warmzera1/kv-store/internal/server"
-	"github.com/warmzera1/kv-store/internal/store"
+	"github.com/warmzera1/kv-store/internal/store/core"
 )
 
 func main() {
 	fmt.Println("Starting KV-Store server...")
 
 	// 1. Создаем хранилище
-	s := store.New()
+	s := core.New()
 
-	// 2. Запускаем TTL
-	s.StartTTLCleaner(1 * time.Second)
+	// // 2. Запускаем TTL
+	// s.StartTTLCleaner(1 * time.Second)
 
 	// 3. Создаем TCP сервер
 	svr := server.New(":6379", s)

@@ -4,25 +4,32 @@ import (
 	"bufio"
 	"fmt"
 	"net"
-	"strconv"
 	"strings"
 
-	"github.com/warmzera1/kv-store/internal/store"
+	"github.com/warmzera1/kv-store/internal/store/core"
+	str "github.com/warmzera1/kv-store/internal/store/pkg/string"
+	"github.com/warmzera1/kv-store/internal/store/pkg/ttl"
 )
 
 // Server - представляет ТСР сервер
 type Server struct {
-	addr     string       // адрес для прослушивания (например:6379)
-	store    *store.Store // ссылка на хранилище
-	listener net.Listener
-	running  bool
+	addr      string              // адрес для прослушивания (например:6379)
+	store     *core.Store         // ссылка на хранилище
+	stringCmd str.InterfaceString // ссылка на пакет str
+	ttlCmd    ttl.TTLInterface
+	listener  net.Listener
+	running   bool
 }
 
 // New - создает новый сервер
-func New(addr string, store *store.Store) *Server {
+func New(addr string, s *core.Store) *Server {
+	ttlStore := ttl.New(s)
+
 	return &Server{
-		addr:  addr,
-		store: store,
+		addr:      addr,
+		store:     s,
+		stringCmd: str.New(s, ttlStore), // создаем обертку
+		ttlCmd:    ttlStore,
 	}
 }
 
@@ -138,7 +145,7 @@ func (s *Server) executeCommand(cmd string) string {
 		key := parts[1]
 		// Объединяем все остальные слова в значение (если значение содержит пробелы)
 		value := strings.Join(parts[2:], " ")
-		s.store.Set(key, value)
+		s.stringCmd.Set(key, value)
 		return "OK"
 
 	// 3. GET - получить значение
@@ -147,7 +154,7 @@ func (s *Server) executeCommand(cmd string) string {
 			return "ERROR: GET requires key"
 		}
 		key := parts[1]
-		value, exists := s.store.Get(key)
+		value, exists := s.stringCmd.Get(key)
 		if !exists {
 			return "(nil)"
 		}
@@ -159,7 +166,7 @@ func (s *Server) executeCommand(cmd string) string {
 			return "ERROR: DEL requires key"
 		}
 		key := parts[1]
-		s.store.Delete(key)
+		s.stringCmd.Delete(key)
 		return "OK"
 
 	// 5. Expire - установить время жизни ключа
@@ -170,7 +177,7 @@ func (s *Server) executeCommand(cmd string) string {
 		key := parts[1]
 		seconds := 0
 		fmt.Sscanf(parts[2], "%d", &seconds)
-		ok, err := s.store.Expire(key, seconds)
+		ok, err := s.ttlCmd.Expire(key, seconds)
 		if err != nil {
 			return fmt.Sprintf("ERROR: %v", err)
 		}
@@ -186,7 +193,7 @@ func (s *Server) executeCommand(cmd string) string {
 		}
 		key := parts[1]
 
-		ttl, err := s.store.TTL(key)
+		ttl, err := s.ttlCmd.TTL(key)
 		if err != nil {
 			return fmt.Sprintf("ERROR: %v", err)
 		}
@@ -201,7 +208,7 @@ func (s *Server) executeCommand(cmd string) string {
 		}
 		key := parts[1]
 
-		ok, err := s.store.Persist(key)
+		ok, err := s.ttlCmd.Persist(key)
 		if err != nil {
 			return fmt.Sprintf("ERROR: %v", err)
 		}
@@ -213,304 +220,304 @@ func (s *Server) executeCommand(cmd string) string {
 		// TTL - не был установлен или нет ключа
 		return "0"
 
-	// 8. LPUSH - добавляет элемент в начало списка
-	case "LPUSH":
-		if len(parts) < 3 {
-			return "ERROR: LPUSH requires key and value(s)"
-		}
-		key := parts[1]
-		values := parts[2:]
+	// // 8. LPUSH - добавляет элемент в начало списка
+	// case "LPUSH":
+	// 	if len(parts) < 3 {
+	// 		return "ERROR: LPUSH requires key and value(s)"
+	// 	}
+	// 	key := parts[1]
+	// 	values := parts[2:]
 
-		// Преобразовываем []string в []interface{}
-		interfaceValues := make([]interface{}, len(values))
-		for i, v := range values {
-			interfaceValues[i] = v
-		}
+	// 	// Преобразовываем []string в []interface{}
+	// 	interfaceValues := make([]interface{}, len(values))
+	// 	for i, v := range values {
+	// 		interfaceValues[i] = v
+	// 	}
 
-		// Выполняем LPush
-		err := s.store.LPush(key, interfaceValues...)
-		if err != nil {
-			return fmt.Sprintf("ERROR: %v", err)
-		}
+	// 	// Выполняем LPush
+	// 	err := s.store.LPush(key, interfaceValues...)
+	// 	if err != nil {
+	// 		return fmt.Sprintf("ERROR: %v", err)
+	// 	}
 
-		// Получаем и возвращаем новую длину списка
-		lenght, _ := s.store.LLen(key)
-		return fmt.Sprintf("%d", lenght)
+	// 	// Получаем и возвращаем новую длину списка
+	// 	lenght, _ := s.store.LLen(key)
+	// 	return fmt.Sprintf("%d", lenght)
 
-	// 9. RPush - добавляет элемент в конец списка
-	case "RPUSH":
-		if len(parts) < 3 {
-			return "ERROR: RPUSH requires key and value(s)"
-		}
-		key := parts[1]
-		values := parts[2:]
+	// // 9. RPush - добавляет элемент в конец списка
+	// case "RPUSH":
+	// 	if len(parts) < 3 {
+	// 		return "ERROR: RPUSH requires key and value(s)"
+	// 	}
+	// 	key := parts[1]
+	// 	values := parts[2:]
 
-		interfaceValues := make([]interface{}, len(values))
-		for i, v := range values {
-			interfaceValues[i] = v
-		}
+	// 	interfaceValues := make([]interface{}, len(values))
+	// 	for i, v := range values {
+	// 		interfaceValues[i] = v
+	// 	}
 
-		// Выполняем RPush
-		err := s.store.RPush(key, interfaceValues...)
-		if err != nil {
-			return fmt.Sprintf("ERROR: %v", err)
-		}
+	// 	// Выполняем RPush
+	// 	err := s.store.RPush(key, interfaceValues...)
+	// 	if err != nil {
+	// 		return fmt.Sprintf("ERROR: %v", err)
+	// 	}
 
-		// Получаем и возвращаем новую длину списка
-		lenght, _ := s.store.LLen(key)
-		return fmt.Sprintf("%d", lenght)
+	// 	// Получаем и возвращаем новую длину списка
+	// 	lenght, _ := s.store.LLen(key)
+	// 	return fmt.Sprintf("%d", lenght)
 
-	// 10. LPop - удаляет первый элемент
-	case "LPOP":
-		if len(parts) < 2 {
-			return "ERROR: LPOP requires key"
-		}
-		key := parts[1]
-		value, err := s.store.LPop(key)
-		if err != nil {
-			return "(nil)"
-		}
-		return fmt.Sprintf("%v", value)
+	// // 10. LPop - удаляет первый элемент
+	// case "LPOP":
+	// 	if len(parts) < 2 {
+	// 		return "ERROR: LPOP requires key"
+	// 	}
+	// 	key := parts[1]
+	// 	value, err := s.store.LPop(key)
+	// 	if err != nil {
+	// 		return "(nil)"
+	// 	}
+	// 	return fmt.Sprintf("%v", value)
 
-	// 11. RPop - удаляет последний элемент
-	case "RPOP":
-		if len(parts) < 2 {
-			return "ERROR: RPOP requires key"
-		}
-		key := parts[1]
-		value, err := s.store.RPop(key)
-		if err != nil {
-			return "(nil)"
-		}
-		return fmt.Sprintf("%v", value)
+	// // 11. RPop - удаляет последний элемент
+	// case "RPOP":
+	// 	if len(parts) < 2 {
+	// 		return "ERROR: RPOP requires key"
+	// 	}
+	// 	key := parts[1]
+	// 	value, err := s.store.RPop(key)
+	// 	if err != nil {
+	// 		return "(nil)"
+	// 	}
+	// 	return fmt.Sprintf("%v", value)
 
-	// LLen - возвращает длину списка
-	case "LLEN":
-		if len(parts) < 2 {
-			return "ERROR: LLEN requires key"
-		}
-		key := parts[1]
-		length, err := s.store.LLen(key)
-		if err != nil {
-			return fmt.Sprintf("ERROR: %v", err)
-		}
-		return fmt.Sprintf("%d", length)
+	// // LLen - возвращает длину списка
+	// case "LLEN":
+	// 	if len(parts) < 2 {
+	// 		return "ERROR: LLEN requires key"
+	// 	}
+	// 	key := parts[1]
+	// 	length, err := s.store.LLen(key)
+	// 	if err != nil {
+	// 		return fmt.Sprintf("ERROR: %v", err)
+	// 	}
+	// 	return fmt.Sprintf("%d", length)
 
-	// LIndex - возвращает элемент по индексу
-	case "LINDEX":
-		if len(parts) < 3 {
-			return "ERROR: LINDEX requires key and index"
-		}
-		key := parts[1]
-		index, err := strconv.Atoi(parts[2])
-		if err != nil {
-			return "ERROR: invalid index"
-		}
-		value, err := s.store.LIndex(key, index)
-		if err != nil {
-			return "(nil)"
-		}
+	// // LIndex - возвращает элемент по индексу
+	// case "LINDEX":
+	// 	if len(parts) < 3 {
+	// 		return "ERROR: LINDEX requires key and index"
+	// 	}
+	// 	key := parts[1]
+	// 	index, err := strconv.Atoi(parts[2])
+	// 	if err != nil {
+	// 		return "ERROR: invalid index"
+	// 	}
+	// 	value, err := s.store.LIndex(key, index)
+	// 	if err != nil {
+	// 		return "(nil)"
+	// 	}
 
-		return fmt.Sprintf("%v", value)
+	// 	return fmt.Sprintf("%v", value)
 
-	// LRange - возвращает диапазон элементов
-	case "LRANGE":
-		if len(parts) < 4 {
-			return "ERROR: LRANGE requires key, start and stop"
-		}
-		key := parts[1]
-		start, err := strconv.Atoi(parts[2])
-		if err != nil {
-			return "ERROR: invalid start"
-		}
-		stop, err := strconv.Atoi(parts[3])
-		if err != nil {
-			return "ERROR: invalid stop"
-		}
+	// // LRange - возвращает диапазон элементов
+	// case "LRANGE":
+	// 	if len(parts) < 4 {
+	// 		return "ERROR: LRANGE requires key, start and stop"
+	// 	}
+	// 	key := parts[1]
+	// 	start, err := strconv.Atoi(parts[2])
+	// 	if err != nil {
+	// 		return "ERROR: invalid start"
+	// 	}
+	// 	stop, err := strconv.Atoi(parts[3])
+	// 	if err != nil {
+	// 		return "ERROR: invalid stop"
+	// 	}
 
-		items, err := s.store.LRange(key, start, stop)
-		if err != nil {
-			return fmt.Sprintf("ERROR: %v", err)
-		}
-		if len(items) == 0 {
-			return "empty array"
-		}
+	// 	items, err := s.store.LRange(key, start, stop)
+	// 	if err != nil {
+	// 		return fmt.Sprintf("ERROR: %v", err)
+	// 	}
+	// 	if len(items) == 0 {
+	// 		return "empty array"
+	// 	}
 
-		result := make([]string, len(items))
-		for i, v := range items {
-			result[i] = fmt.Sprintf("%v", v)
-		}
+	// 	result := make([]string, len(items))
+	// 	for i, v := range items {
+	// 		result[i] = fmt.Sprintf("%v", v)
+	// 	}
 
-		return strings.Join(result, "\n")
+	// 	return strings.Join(result, "\n")
 
-	// SADD - добавляет элемент в множество
-	case "SADD":
-		if len(parts) < 3 {
-			return "ERROR: SADD requires key and value(s)"
-		}
-		key := parts[1]
-		members := parts[2:]
+	// // SADD - добавляет элемент в множество
+	// case "SADD":
+	// 	if len(parts) < 3 {
+	// 		return "ERROR: SADD requires key and value(s)"
+	// 	}
+	// 	key := parts[1]
+	// 	members := parts[2:]
 
-		membersInterface := make([]interface{}, len(members))
-		for k, v := range members {
-			membersInterface[k] = v
-		}
+	// 	membersInterface := make([]interface{}, len(members))
+	// 	for k, v := range members {
+	// 		membersInterface[k] = v
+	// 	}
 
-		added, err := s.store.SAdd(key, membersInterface...)
-		if err != nil {
-			return fmt.Sprintf("ERROR: %v", err)
-		}
+	// 	added, err := s.store.SAdd(key, membersInterface...)
+	// 	if err != nil {
+	// 		return fmt.Sprintf("ERROR: %v", err)
+	// 	}
 
-		return fmt.Sprintf("%d", added)
+	// 	return fmt.Sprintf("%d", added)
 
-		// SREM - удаляет один или несколько элементов
-	case "SREM":
-		if len(parts) < 3 {
-			return "ERROR: SREM requires key and value(s)"
-		}
-		key := parts[1]
-		members := parts[2:]
+	// 	// SREM - удаляет один или несколько элементов
+	// case "SREM":
+	// 	if len(parts) < 3 {
+	// 		return "ERROR: SREM requires key and value(s)"
+	// 	}
+	// 	key := parts[1]
+	// 	members := parts[2:]
 
-		membersInterface := make([]interface{}, len(members))
-		for k, v := range members {
-			membersInterface[k] = v
-		}
+	// 	membersInterface := make([]interface{}, len(members))
+	// 	for k, v := range members {
+	// 		membersInterface[k] = v
+	// 	}
 
-		removed, err := s.store.SRem(key, membersInterface...)
-		if err != nil {
-			return fmt.Sprintf("ERROR: %v", err)
-		}
+	// 	removed, err := s.store.SRem(key, membersInterface...)
+	// 	if err != nil {
+	// 		return fmt.Sprintf("ERROR: %v", err)
+	// 	}
 
-		return fmt.Sprintf("%d", removed)
+	// 	return fmt.Sprintf("%d", removed)
 
-	// SISMEMBER - есть ли элемент в множестве
-	case "SISMEMBER":
-		if len(parts) < 3 {
-			return "ERROR: SISMEMBER requires key and value"
-		}
-		key := parts[1]
-		value := parts[2]
+	// // SISMEMBER - есть ли элемент в множестве
+	// case "SISMEMBER":
+	// 	if len(parts) < 3 {
+	// 		return "ERROR: SISMEMBER requires key and value"
+	// 	}
+	// 	key := parts[1]
+	// 	value := parts[2]
 
-		exists, err := s.store.SIsMember(key, value)
-		if err != nil {
-			return fmt.Sprintf("ERROR: %v", err)
-		}
-		if exists {
-			return "1"
-		}
+	// 	exists, err := s.store.SIsMember(key, value)
+	// 	if err != nil {
+	// 		return fmt.Sprintf("ERROR: %v", err)
+	// 	}
+	// 	if exists {
+	// 		return "1"
+	// 	}
 
-		return "0"
+	// 	return "0"
 
-	// SMEMBERS - возвращает все элементы в множестве
-	case "SMEMBERS":
-		if len(parts) < 2 {
-			return "ERROR: SMEMBERS requires key"
-		}
-		key := parts[1]
+	// // SMEMBERS - возвращает все элементы в множестве
+	// case "SMEMBERS":
+	// 	if len(parts) < 2 {
+	// 		return "ERROR: SMEMBERS requires key"
+	// 	}
+	// 	key := parts[1]
 
-		members, err := s.store.SMembers(key)
-		if err != nil {
-			return fmt.Sprintf("ERROR: %v", err)
-		}
-		if len(members) == 0 {
-			return "(empty set)"
-		}
+	// 	members, err := s.store.SMembers(key)
+	// 	if err != nil {
+	// 		return fmt.Sprintf("ERROR: %v", err)
+	// 	}
+	// 	if len(members) == 0 {
+	// 		return "(empty set)"
+	// 	}
 
-		result := make([]string, len(members))
-		for i, v := range members {
-			result[i] = fmt.Sprintf("%v", v)
-		}
+	// 	result := make([]string, len(members))
+	// 	for i, v := range members {
+	// 		result[i] = fmt.Sprintf("%v", v)
+	// 	}
 
-		return strings.Join(result, "\n")
+	// 	return strings.Join(result, "\n")
 
-	// SCARD - возвращает кол-во элементов в множестве
-	case "SCARD":
-		if len(parts) < 2 {
-			return "ERROR: SCARD requires key"
-		}
-		key := parts[1]
+	// // SCARD - возвращает кол-во элементов в множестве
+	// case "SCARD":
+	// 	if len(parts) < 2 {
+	// 		return "ERROR: SCARD requires key"
+	// 	}
+	// 	key := parts[1]
 
-		count, err := s.store.SCard(key)
-		if err != nil {
-			return fmt.Sprintf("ERROR: %v", err)
-		}
+	// 	count, err := s.store.SCard(key)
+	// 	if err != nil {
+	// 		return fmt.Sprintf("ERROR: %v", err)
+	// 	}
 
-		return fmt.Sprintf("%d", count)
+	// 	return fmt.Sprintf("%d", count)
 
-	// HSET - устанавливает поле в хеше
-	case "HSET":
-		if len(parts) < 4 {
-			return "ERROR: HSET requires key, field and value"
-		}
-		key := parts[1]
-		field := parts[2]
-		value := strings.Join(parts[3:], " ")
+	// // HSET - устанавливает поле в хеше
+	// case "HSET":
+	// 	if len(parts) < 4 {
+	// 		return "ERROR: HSET requires key, field and value"
+	// 	}
+	// 	key := parts[1]
+	// 	field := parts[2]
+	// 	value := strings.Join(parts[3:], " ")
 
-		err := s.store.HSet(key, field, value)
-		if err != nil {
-			return fmt.Sprintf("ERROR: %v", err)
-		}
+	// 	err := s.store.HSet(key, field, value)
+	// 	if err != nil {
+	// 		return fmt.Sprintf("ERROR: %v", err)
+	// 	}
 
-		return "OK"
+	// 	return "OK"
 
-	// HGET - получить поле поключу
-	case "HGET":
-		if len(parts) < 3 {
-			return "ERROR: HGET requires key and field"
-		}
-		key := parts[1]
-		field := parts[2]
+	// // HGET - получить поле поключу
+	// case "HGET":
+	// 	if len(parts) < 3 {
+	// 		return "ERROR: HGET requires key and field"
+	// 	}
+	// 	key := parts[1]
+	// 	field := parts[2]
 
-		value, err := s.store.HGet(key, field)
-		if err != nil {
-			return fmt.Sprintf("ERROR: %v", err)
-		}
+	// 	value, err := s.store.HGet(key, field)
+	// 	if err != nil {
+	// 		return fmt.Sprintf("ERROR: %v", err)
+	// 	}
 
-		if value == nil {
-			return "(nil)"
-		}
+	// 	if value == nil {
+	// 		return "(nil)"
+	// 	}
 
-		return fmt.Sprintf("%v", value)
+	// 	return fmt.Sprintf("%v", value)
 
-	// HGETALL - получить все поля по ключу
-	case "HGETALL":
-		if len(parts) < 2 {
-			return "ERROR: HGETALL requires key"
-		}
+	// // HGETALL - получить все поля по ключу
+	// case "HGETALL":
+	// 	if len(parts) < 2 {
+	// 		return "ERROR: HGETALL requires key"
+	// 	}
 
-		key := parts[1]
-		fields, err := s.store.HGetAll(key)
+	// 	key := parts[1]
+	// 	fields, err := s.store.HGetAll(key)
 
-		if err != nil {
-			return fmt.Sprintf("ERROR: %v", err)
-		}
+	// 	if err != nil {
+	// 		return fmt.Sprintf("ERROR: %v", err)
+	// 	}
 
-		if len(fields) == 0 {
-			return "(empty hash)"
-		}
+	// 	if len(fields) == 0 {
+	// 		return "(empty hash)"
+	// 	}
 
-		// Форматируем: каждое поле и значение с новой строки
-		result := make([]string, 0, len(fields)*2)
-		for k, v := range fields {
-			result = append(result, k, fmt.Sprintf("%v", v))
-		}
+	// 	// Форматируем: каждое поле и значение с новой строки
+	// 	result := make([]string, 0, len(fields)*2)
+	// 	for k, v := range fields {
+	// 		result = append(result, k, fmt.Sprintf("%v", v))
+	// 	}
 
-		return strings.Join(result, "\n")
+	// 	return strings.Join(result, "\n")
 
-	// HDEL - удаляет одно или несколько полей из хеша
-	case "HDEL":
-		if len(parts) < 3 {
-			return "ERROR: HDEL requires key and field(s)"
-		}
-		key := parts[1]
-		fields := parts[2:]
+	// // HDEL - удаляет одно или несколько полей из хеша
+	// case "HDEL":
+	// 	if len(parts) < 3 {
+	// 		return "ERROR: HDEL requires key and field(s)"
+	// 	}
+	// 	key := parts[1]
+	// 	fields := parts[2:]
 
-		err := s.store.HDel(key, fields...)
-		if err != nil {
-			return fmt.Sprintf("ERROR: %v", err)
-		}
+	// 	err := s.store.HDel(key, fields...)
+	// 	if err != nil {
+	// 		return fmt.Sprintf("ERROR: %v", err)
+	// 	}
 
-		return "OK"
+	// 	return "OK"
 
 	// Неизвестная команда
 	default:

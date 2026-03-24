@@ -1,28 +1,38 @@
-package store
+package ttl
 
 import (
 	"fmt"
 	"math"
 	"time"
+
+	"github.com/warmzera1/kv-store/internal/store/core"
 )
+
+type TTLStore struct {
+	store *core.Store
+}
+
+func New(s *core.Store) *TTLStore {
+	return &TTLStore{store: s}
+}
 
 // Expire - устанавливает время жизни ключа
 // Если ключа нет - возвращает false, nil
 // Если TTL установлен успешно - возвращает true, false
 // seconds - время жизни в секундах (sec>0)
-func (s *Store) Expire(key string, seconds int) (bool, error) {
+func (s *TTLStore) Expire(key string, seconds int) (bool, error) {
 	// 1. Проверяем, что TTL - положительный
 	if seconds <= 0 {
 		return false, fmt.Errorf("TTL must be positive, got %d", seconds)
 	}
 
 	// 2. Блокируем хранилище для записи
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	s.store.Mu.Lock()
+	defer s.store.Mu.Unlock()
 
 	// 3. Проверяем, существует ли ключ
 	// Если ключа нет - ничего не делаем
-	_, exists := s.data[key]
+	_, exists := s.store.Data[key]
 	if !exists {
 		return false, nil
 	}
@@ -33,7 +43,7 @@ func (s *Store) Expire(key string, seconds int) (bool, error) {
 	expiresAt := time.Now().Add(time.Duration(seconds) * time.Second)
 
 	// 5. Сохраняем время истечения
-	s.expiry[key] = expiresAt
+	s.store.Expiry[key] = expiresAt
 
 	// 6. Возвращаем true - TTL успешно установлен
 	return true, nil
@@ -43,25 +53,25 @@ func (s *Store) Expire(key string, seconds int) (bool, error) {
 // Если ключа нет - возвращает -2, nil
 // Если TTL не установлен - возвращает -1, nil
 // Если ключ истек - возвращает -2, nil
-func (s *Store) TTL(key string) (int, error) {
+func (s *TTLStore) TTL(key string) (int, error) {
 	// 1. Блокируем для чтения
-	s.mu.RLock()
-	defer s.mu.RUnlock()
+	s.store.Mu.RLock()
+	defer s.store.Mu.RUnlock()
 
 	// 2. Проверяем, существует ли ключ
-	_, exists := s.data[key]
+	_, exists := s.store.Data[key]
 	if !exists {
 		return -2, nil
 	}
 
 	// 3. Проверяем истек ли ключ (без удаления)
-	if s.isExpired(key) {
+	if s.IsExpired(key) {
 		return -2, nil
 	}
 
 	// 4. Проверяем, есть ли ключ в expiry
 	// Если есть, получаем значение
-	expiresAt, exists := s.expiry[key]
+	expiresAt, exists := s.store.Expiry[key]
 	if !exists {
 		return -1, nil
 	}
@@ -83,33 +93,33 @@ func (s *Store) TTL(key string) (int, error) {
 // Если ключа нет - возвращает false, nil
 // Если TTL не был установлен - возвращает false, nil
 // Если TTL был успешно удален - возвращает true, nil
-func (s *Store) Persist(key string) (bool, error) {
+func (s *TTLStore) Persist(key string) (bool, error) {
 	// 1. Блокируем для записи
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	s.store.Mu.Lock()
+	defer s.store.Mu.Unlock()
 
 	// 2. Проверяем, существует ли ключ
-	_, exists := s.data[key]
+	_, exists := s.store.Data[key]
 	if !exists {
 		return false, nil
 	}
 
 	// 3. Проверяем, есть ли TTL в expiry
-	_, exists = s.expiry[key]
+	_, exists = s.store.Expiry[key]
 	if !exists {
 		return false, nil
 	}
 
 	// 4. Удаляем ключ из expiry
-	delete(s.expiry, key)
+	delete(s.store.Expiry, key)
 
 	return true, nil
 }
 
 // isExpired - проверяет, истек ли ключ (без удаления)
-func (s *Store) isExpired(key string) bool {
+func (s *TTLStore) IsExpired(key string) bool {
 	// Получаем время истечения, если установлено
-	expiresAt, hasExpiry := s.expiry[key]
+	expiresAt, hasExpiry := s.store.Expiry[key]
 	if !hasExpiry {
 		// Нет TTL - ключ не может истечь
 		return false
@@ -120,9 +130,9 @@ func (s *Store) isExpired(key string) bool {
 }
 
 // isExpiredAndClean - проверяет истек ли ключ, если да - удаляет
-func (s *Store) isExpiredAndClean(key string) bool {
+func (s *TTLStore) IsExpiredAndClean(key string) bool {
 	// Получаем время истечения, если установлено
-	expiresAt, hasExpiry := s.expiry[key]
+	expiresAt, hasExpiry := s.store.Expiry[key]
 	if !hasExpiry {
 		return false
 	}
@@ -130,9 +140,9 @@ func (s *Store) isExpiredAndClean(key string) bool {
 	// Проверяем, наступило ли время истечения
 	if time.Now().After(expiresAt) {
 		// Ключ истек - удаляем его из всех хранилищ
-		delete(s.data, key)
-		delete(s.types, key)
-		delete(s.expiry, key)
+		delete(s.store.Data, key)
+		delete(s.store.Types, key)
+		delete(s.store.Expiry, key)
 		return true
 	}
 
@@ -141,22 +151,22 @@ func (s *Store) isExpiredAndClean(key string) bool {
 }
 
 // CleanExpiredKeys - удаляет все истекшие ключи
-func (s *Store) CleanExpiredKeys() {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+func (s *TTLStore) CleanExpiredKeys() {
+	s.store.Mu.Lock()
+	defer s.store.Mu.Unlock()
 
 	now := time.Now()
-	for key, expiresAt := range s.expiry {
+	for key, expiresAt := range s.store.Expiry {
 		if now.After(expiresAt) {
-			delete(s.data, key)
-			delete(s.types, key)
-			delete(s.expiry, key)
+			delete(s.store.Data, key)
+			delete(s.store.Types, key)
+			delete(s.store.Expiry, key)
 		}
 	}
 }
 
 // StartTTLCleaner - запускает фоновую горутину для удаления истекших ключей
-func (s *Store) StartTTLCleaner(interval time.Duration) {
+func (s *TTLStore) StartTTLCleaner(interval time.Duration) {
 
 	// 1. Запуска горутину
 	// go - запусти эту функцию параллельно, не жди

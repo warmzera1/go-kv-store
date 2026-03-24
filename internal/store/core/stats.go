@@ -1,4 +1,4 @@
-package store
+package core
 
 // Для операций статистики
 const (
@@ -15,29 +15,29 @@ type Stats struct {
 }
 
 // updateStats - обновляет статистику операций
-func (s *Store) updateStats(op int) {
-	s.statsMu.Lock()
-	defer s.statsMu.Unlock()
+func (s *Store) UpdateStats(op int) {
+	s.StatsMu.Lock()
+	defer s.StatsMu.Unlock()
 
 	switch op {
 	case SetOp:
-		s.stats.SetCount++
+		s.Stats.SetCount++
 	case GetOp:
-		s.stats.GetCount++
+		s.Stats.GetCount++
 	case DelOp:
-		s.stats.DelCount++
+		s.Stats.DelCount++
 	}
 }
 
-func (s *Store) Stats() Stats {
+func (s *Store) GetStats() Stats {
 	// 1. Блокируем данные для чтения
-	s.statsMu.Lock()
-	defer s.statsMu.Unlock()
+	s.StatsMu.Lock()
+	defer s.StatsMu.Unlock()
 
 	// 2. Возвращаем копию, чтобы нельзя было изменить оригинал
 	return Stats{
-		SetCount: s.stats.SetCount,
-		GetCount: s.stats.GetCount,
-		DelCount: s.stats.DelCount,
+		SetCount: s.Stats.SetCount,
+		GetCount: s.Stats.GetCount,
+		DelCount: s.Stats.DelCount,
 	}
 }
