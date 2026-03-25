@@ -10,6 +10,7 @@ import (
 	"github.com/warmzera1/kv-store/internal/store/core"
 	"github.com/warmzera1/kv-store/internal/store/pkg/hash"
 	"github.com/warmzera1/kv-store/internal/store/pkg/list"
+	"github.com/warmzera1/kv-store/internal/store/pkg/protocol"
 	"github.com/warmzera1/kv-store/internal/store/pkg/set"
 	str "github.com/warmzera1/kv-store/internal/store/pkg/string"
 	"github.com/warmzera1/kv-store/internal/store/pkg/ttl"
@@ -83,50 +84,75 @@ func (s *Server) Stop() error {
 	return nil
 }
 
+// func (s *Server) handleConnection(conn net.Conn) {
+// 	// 1. Закрываем соединение при выходе
+// 	defer conn.Close()
+
+// 	reader := bufio.NewReader(conn)
+// 	decoder := protocol.NewDecoder(reader)
+
+// 	// conn.RemoteAddr - адрес клиента (например, 127.0.0.1:5423)
+// 	fmt.Printf("New connection from %s\n", conn.RemoteAddr())
+
+// 	// Создаем сканер для чтения команд построчно
+// 	scanner := bufio.NewScanner(conn)
+
+// 	// Читаем команды, пока соединение окрыто
+// 	for scanner.Scan() {
+
+// 		// Получаем команду (убираем лишние пробелы)
+// 		cmd := strings.TrimSpace(scanner.Text())
+// 		if cmd == "" {
+// 			continue
+// 		}
+
+// 		fmt.Printf("Received from %s: %s\n", conn.RemoteAddr(), cmd)
+
+// 		// Выполняем команду и получаем ответ
+// 		response := s.executeCommand(cmd)
+
+// 		// Отправляем ответ клиенту
+// 		_, err := conn.Write([]byte(response + "\n"))
+// 		if err != nil {
+// 			fmt.Printf("Error writing to %s: %v\n", conn.RemoteAddr(), err)
+// 			break
+// 		}
+// 	}
+
+// 	// Проверяем ошибки сканера
+// 	if err := scanner.Err(); err != nil {
+// 		fmt.Printf("Error reading from %s: %v\n", conn.RemoteAddr(), err)
+// 	}
+
+// 	fmt.Printf("Connection from %s closed\n", conn.RemoteAddr())
+// }
+
 func (s *Server) handleConnection(conn net.Conn) {
-	// 1. Закрываем соединение при выходе
 	defer conn.Close()
 
-	// conn.RemoteAddr - адрес клиента (например, 127.0.0.1:5423)
-	fmt.Printf("New connection from %s\n", conn.RemoteAddr())
+	reader := bufio.NewReader(conn)
+	decoder := protocol.NewDecoder(reader)
 
-	// Создаем сканер для чтения команд построчно
-	scanner := bufio.NewScanner(conn)
+	for {
+		parts, err := decoder.Decode()
+		if err != nil {
+			conn.Write([]byte(protocol.EncodeError("ERR invalid command")))
+			break
+		}
 
-	// Читаем команды, пока соединение окрыто
-	for scanner.Scan() {
-
-		// Получаем команду (убираем лишние пробелы)
-		cmd := strings.TrimSpace(scanner.Text())
-		if cmd == "" {
+		if len(parts) == 0 {
 			continue
 		}
 
-		fmt.Printf("Received from %s: %s\n", conn.RemoteAddr(), cmd)
-
-		// Выполняем команду и получаем ответ
-		response := s.executeCommand(cmd)
-
-		// Отправляем ответ клиенту
-		_, err := conn.Write([]byte(response + "\n"))
-		if err != nil {
-			fmt.Printf("Error writing to %s: %v\n", conn.RemoteAddr(), err)
-			break
-		}
+		response := s.executeCommand(parts)
+		conn.Write([]byte(response))
 	}
 
-	// Проверяем ошибки сканера
-	if err := scanner.Err(); err != nil {
-		fmt.Printf("Error reading from %s: %v\n", conn.RemoteAddr(), err)
-	}
-
-	fmt.Printf("Connection from %s closed\n", conn.RemoteAddr())
 }
 
 // executeCommand - разбирает и выполняет команду
-func (s *Server) executeCommand(cmd string) string {
+func (s *Server) executeCommand(parts []string) string {
 	// Разбираем команду на слова
-	parts := strings.Fields(cmd)
 	if len(parts) == 0 {
 		return "ERROR: empty command"
 	}
@@ -138,100 +164,104 @@ func (s *Server) executeCommand(cmd string) string {
 
 	// 1. PING - проверка соединения
 	case "PING":
-		return "PONG"
+		return protocol.EncodeSimpleString("PONG")
 
 	// 2. QUIT - закрытие соединения
 	case "QUIT":
-		return "OK"
+		return protocol.EncodeSimpleString("OK")
 
 	// 2. SET - установить значение
 	case "SET":
 		// Проверяем количество аргументов
 		if len(parts) < 3 {
-			return "ERROR: SET requires key and value"
+			return protocol.EncodeError("ERROR: SET requires key and value")
 		}
 		key := parts[1]
 		// Объединяем все остальные слова в значение (если значение содержит пробелы)
 		value := strings.Join(parts[2:], " ")
 		s.stringCmd.Set(key, value)
-		return "OK"
+		return protocol.EncodeSimpleString("OK")
 
 	// 3. GET - получить значение
 	case "GET":
 		if len(parts) < 2 {
-			return "ERROR: GET requires key"
+			return protocol.EncodeError("ERROR: GET requires key")
 		}
 		key := parts[1]
 		value, exists := s.stringCmd.Get(key)
 		if !exists {
-			return "(nil)"
+			return protocol.EncodeNullBulkString()
 		}
-		return value
+		return protocol.EncodeBulkString(value)
 
 	// 4. DEL - удалить ключ
 	case "DEL":
 		if len(parts) < 2 {
-			return "ERROR: DEL requires key"
+			return protocol.EncodeError("ERROR: DEL requires key")
 		}
 		key := parts[1]
 		s.stringCmd.Delete(key)
-		return "OK"
+		return protocol.EncodeSimpleString("OK")
 
 	// 5. Expire - установить время жизни ключа
 	case "EXPIRE":
 		if len(parts) < 3 {
-			return "ERROR: EXPIRE requires key and seconds"
+			return protocol.EncodeError("ERROR: EXPIRE requires key and seconds")
 		}
 		key := parts[1]
-		seconds := 0
-		fmt.Sscanf(parts[2], "%d", &seconds)
+
+		seconds, err := strconv.Atoi(parts[2])
+		if err != nil {
+			return protocol.EncodeError("ERR value is not an integer")
+		}
+
 		ok, err := s.ttlCmd.Expire(key, seconds)
 		if err != nil {
-			return fmt.Sprintf("ERROR: %v", err)
+			return protocol.EncodeError(err.Error())
 		}
 		if ok {
-			return "1"
+			return protocol.EncodeInteger(1)
 		}
-		return "0"
+		return protocol.EncodeInteger(0)
 
 	// 6. TTL - время жизни ключа
 	case "TTL":
 		if len(parts) < 2 {
-			return "ERROR: TTL requires key"
+			return protocol.EncodeError("ERROR: TTL requires key")
 		}
 		key := parts[1]
 
 		ttl, err := s.ttlCmd.TTL(key)
 		if err != nil {
-			return fmt.Sprintf("ERROR: %v", err)
+			return protocol.EncodeError(err.Error())
 		}
 
 		// -2 нет ключа, -1 нет TTL, >0 секунды
-		return fmt.Sprintf("%d", ttl)
+		return protocol.EncodeInteger(ttl)
 
 	// 7. PERSIST - удаляет TTL у ключа
 	case "PERSIST":
 		if len(parts) < 2 {
-			return "ERROR: PERSIST requires key"
+			return protocol.EncodeError("ERROR: PERSIST requires key")
 		}
 		key := parts[1]
 
 		ok, err := s.ttlCmd.Persist(key)
 		if err != nil {
-			return fmt.Sprintf("ERROR: %v", err)
+			return protocol.EncodeError(err.Error())
 		}
 		if ok {
 			// TTL - удален
-			return "1"
+			return protocol.EncodeInteger(1)
 		}
 
 		// TTL - не был установлен или нет ключа
-		return "0"
+		return protocol.EncodeInteger(0)
 
 	// 8. LPUSH - добавляет элемент в начало списка
 	case "LPUSH":
 		if len(parts) < 3 {
-			return "ERROR: LPUSH requires key and value(s)"
+			return protocol.EncodeError("ERROR: LPUSH requires key and value(s)")
 		}
 		key := parts[1]
 		values := parts[2:]
@@ -245,17 +275,17 @@ func (s *Server) executeCommand(cmd string) string {
 		// Выполняем LPush
 		err := s.listCmd.LPush(key, interfaceValues...)
 		if err != nil {
-			return fmt.Sprintf("ERROR: %v", err)
+			return protocol.EncodeError(err.Error())
 		}
 
 		// Получаем и возвращаем новую длину списка
 		lenght, _ := s.listCmd.LLen(key)
-		return fmt.Sprintf("%d", lenght)
+		return protocol.EncodeInteger(lenght)
 
 	// 9. RPush - добавляет элемент в конец списка
 	case "RPUSH":
 		if len(parts) < 3 {
-			return "ERROR: RPUSH requires key and value(s)"
+			return protocol.EncodeError("ERROR: RPUSH requires key and value(s)")
 		}
 		key := parts[1]
 		values := parts[2:]
@@ -268,87 +298,87 @@ func (s *Server) executeCommand(cmd string) string {
 		// Выполняем RPush
 		err := s.listCmd.RPush(key, interfaceValues...)
 		if err != nil {
-			return fmt.Sprintf("ERROR: %v", err)
+			return protocol.EncodeError(err.Error())
 		}
 
 		// Получаем и возвращаем новую длину списка
-		lenght, _ := s.listCmd.LLen(key)
-		return fmt.Sprintf("%d", lenght)
+		length, _ := s.listCmd.LLen(key)
+		return protocol.EncodeInteger(length)
 
 	// 10. LPop - удаляет первый элемент
 	case "LPOP":
 		if len(parts) < 2 {
-			return "ERROR: LPOP requires key"
+			return protocol.EncodeError("ERROR: LPOP requires key")
 		}
 		key := parts[1]
 		value, err := s.listCmd.LPop(key)
 		if err != nil {
-			return "(nil)"
+			return protocol.EncodeNullBulkString()
 		}
-		return fmt.Sprintf("%v", value)
+		return protocol.EncodeBulkString(fmt.Sprintf("%v", value))
 
 	// 11. RPop - удаляет последний элемент
 	case "RPOP":
 		if len(parts) < 2 {
-			return "ERROR: RPOP requires key"
+			return protocol.EncodeError("ERROR: RPOP requires key")
 		}
 		key := parts[1]
 		value, err := s.listCmd.RPop(key)
 		if err != nil {
-			return "(nil)"
+			return protocol.EncodeNullBulkString()
 		}
-		return fmt.Sprintf("%v", value)
+		return protocol.EncodeBulkString(fmt.Sprintf("%v", value))
 
 	// LLen - возвращает длину списка
 	case "LLEN":
 		if len(parts) < 2 {
-			return "ERROR: LLEN requires key"
+			return protocol.EncodeError("ERROR: LLEN requires key")
 		}
 		key := parts[1]
 		length, err := s.listCmd.LLen(key)
 		if err != nil {
-			return fmt.Sprintf("ERROR: %v", err)
+			return protocol.EncodeError(err.Error())
 		}
-		return fmt.Sprintf("%d", length)
+		return protocol.EncodeInteger(length)
 
 	// LIndex - возвращает элемент по индексу
 	case "LINDEX":
 		if len(parts) < 3 {
-			return "ERROR: LINDEX requires key and index"
+			return protocol.EncodeError("ERROR: LINDEX requires key and index")
 		}
 		key := parts[1]
 		index, err := strconv.Atoi(parts[2])
 		if err != nil {
-			return "ERROR: invalid index"
+			return protocol.EncodeError("ERROR: invalid index")
 		}
 		value, err := s.listCmd.LIndex(key, index)
 		if err != nil {
-			return "(nil)"
+			return protocol.EncodeNullBulkString()
 		}
 
-		return fmt.Sprintf("%v", value)
+		return protocol.EncodeBulkString(fmt.Sprintf("%v", value))
 
 	// LRange - возвращает диапазон элементов
 	case "LRANGE":
 		if len(parts) < 4 {
-			return "ERROR: LRANGE requires key, start and stop"
+			return protocol.EncodeError("ERROR: LRANGE requires key, start and stop")
 		}
 		key := parts[1]
 		start, err := strconv.Atoi(parts[2])
 		if err != nil {
-			return "ERROR: invalid start"
+			return protocol.EncodeError("ERROR: invalid start")
 		}
 		stop, err := strconv.Atoi(parts[3])
 		if err != nil {
-			return "ERROR: invalid stop"
+			return protocol.EncodeError("ERROR: invalid stop")
 		}
 
 		items, err := s.listCmd.LRange(key, start, stop)
 		if err != nil {
-			return fmt.Sprintf("ERROR: %v", err)
+			return protocol.EncodeError(err.Error())
 		}
 		if len(items) == 0 {
-			return "empty array"
+			return protocol.EncodeArray([]string{})
 		}
 
 		result := make([]string, len(items))
@@ -356,12 +386,12 @@ func (s *Server) executeCommand(cmd string) string {
 			result[i] = fmt.Sprintf("%v", v)
 		}
 
-		return strings.Join(result, "\n")
+		return protocol.EncodeArray(result)
 
 	// SADD - добавляет элемент в множество
 	case "SADD":
 		if len(parts) < 3 {
-			return "ERROR: SADD requires key and value(s)"
+			return protocol.EncodeError("ERROR: SADD requires key and value(s)")
 		}
 		key := parts[1]
 		members := parts[2:]
@@ -373,15 +403,15 @@ func (s *Server) executeCommand(cmd string) string {
 
 		added, err := s.setCmd.SAdd(key, membersInterface...)
 		if err != nil {
-			return fmt.Sprintf("ERROR: %v", err)
+			return protocol.EncodeError(err.Error())
 		}
 
-		return fmt.Sprintf("%d", added)
+		return protocol.EncodeInteger(added)
 
 		// SREM - удаляет один или несколько элементов
 	case "SREM":
 		if len(parts) < 3 {
-			return "ERROR: SREM requires key and value(s)"
+			return protocol.EncodeError("ERROR: SREM requires key and value(s)")
 		}
 		key := parts[1]
 		members := parts[2:]
@@ -393,42 +423,42 @@ func (s *Server) executeCommand(cmd string) string {
 
 		removed, err := s.setCmd.SRem(key, membersInterface...)
 		if err != nil {
-			return fmt.Sprintf("ERROR: %v", err)
+			return protocol.EncodeError(err.Error())
 		}
 
-		return fmt.Sprintf("%d", removed)
+		return protocol.EncodeInteger(removed)
 
 	// SISMEMBER - есть ли элемент в множестве
 	case "SISMEMBER":
 		if len(parts) < 3 {
-			return "ERROR: SISMEMBER requires key and value"
+			return protocol.EncodeError("ERROR: SISMEMBER requires key and value")
 		}
 		key := parts[1]
 		value := parts[2]
 
 		exists, err := s.setCmd.SIsMember(key, value)
 		if err != nil {
-			return fmt.Sprintf("ERROR: %v", err)
+			return protocol.EncodeError(err.Error())
 		}
 		if exists {
-			return "1"
+			return protocol.EncodeInteger(1)
 		}
 
-		return "0"
+		return protocol.EncodeInteger(0)
 
 	// SMEMBERS - возвращает все элементы в множестве
 	case "SMEMBERS":
 		if len(parts) < 2 {
-			return "ERROR: SMEMBERS requires key"
+			return protocol.EncodeError("ERROR: SMEMBERS requires key")
 		}
 		key := parts[1]
 
 		members, err := s.setCmd.SMembers(key)
 		if err != nil {
-			return fmt.Sprintf("ERROR: %v", err)
+			return protocol.EncodeError(err.Error())
 		}
 		if len(members) == 0 {
-			return "(empty set)"
+			return protocol.EncodeArray([]string{})
 		}
 
 		result := make([]string, len(members))
@@ -436,26 +466,26 @@ func (s *Server) executeCommand(cmd string) string {
 			result[i] = fmt.Sprintf("%v", v)
 		}
 
-		return strings.Join(result, "\n")
+		return protocol.EncodeArray(result)
 
 	// SCARD - возвращает кол-во элементов в множестве
 	case "SCARD":
 		if len(parts) < 2 {
-			return "ERROR: SCARD requires key"
+			return protocol.EncodeError("ERROR: SCARD requires key")
 		}
 		key := parts[1]
 
 		count, err := s.setCmd.SCard(key)
 		if err != nil {
-			return fmt.Sprintf("ERROR: %v", err)
+			return protocol.EncodeError(err.Error())
 		}
 
-		return fmt.Sprintf("%d", count)
+		return protocol.EncodeInteger(count)
 
 	// HSET - устанавливает поле в хеше
 	case "HSET":
 		if len(parts) < 4 {
-			return "ERROR: HSET requires key, field and value"
+			return protocol.EncodeError("ERROR: HSET requires key, field and value")
 		}
 		key := parts[1]
 		field := parts[2]
@@ -463,45 +493,45 @@ func (s *Server) executeCommand(cmd string) string {
 
 		err := s.hashCmd.HSet(key, field, value)
 		if err != nil {
-			return fmt.Sprintf("ERROR: %v", err)
+			return protocol.EncodeError(err.Error())
 		}
 
-		return "OK"
+		return protocol.EncodeSimpleString("OK")
 
 	// HGET - получить поле поключу
 	case "HGET":
 		if len(parts) < 3 {
-			return "ERROR: HGET requires key and field"
+			return protocol.EncodeError("ERROR: HGET requires key and field")
 		}
 		key := parts[1]
 		field := parts[2]
 
 		value, err := s.hashCmd.HGet(key, field)
 		if err != nil {
-			return fmt.Sprintf("ERROR: %v", err)
+			return protocol.EncodeError(err.Error())
 		}
 
 		if value == nil {
-			return "(nil)"
+			return protocol.EncodeNullBulkString()
 		}
 
-		return fmt.Sprintf("%v", value)
+		return protocol.EncodeBulkString(fmt.Sprintf("%v", value))
 
 	// HGETALL - получить все поля по ключу
 	case "HGETALL":
 		if len(parts) < 2 {
-			return "ERROR: HGETALL requires key"
+			return protocol.EncodeError("ERROR: HGETALL requires key")
 		}
 
 		key := parts[1]
 		fields, err := s.hashCmd.HGetAll(key)
 
 		if err != nil {
-			return fmt.Sprintf("ERROR: %v", err)
+			return protocol.EncodeError(err.Error())
 		}
 
 		if len(fields) == 0 {
-			return "(empty hash)"
+			return protocol.EncodeArray([]string{})
 		}
 
 		// Форматируем: каждое поле и значение с новой строки
@@ -510,26 +540,25 @@ func (s *Server) executeCommand(cmd string) string {
 			result = append(result, k, fmt.Sprintf("%v", v))
 		}
 
-		return strings.Join(result, "\n")
+		return protocol.EncodeArray(result)
 
 	// HDEL - удаляет одно или несколько полей из хеша
 	case "HDEL":
 		if len(parts) < 3 {
-			return "ERROR: HDEL requires key and field(s)"
+			return protocol.EncodeError("ERROR: HDEL requires key and field(s)")
 		}
 		key := parts[1]
 		fields := parts[2:]
 
 		err := s.hashCmd.HDel(key, fields...)
 		if err != nil {
-			return fmt.Sprintf("ERROR: %v", err)
+			return protocol.EncodeError(err.Error())
 		}
 
-		return "OK"
+		return protocol.EncodeSimpleString("OK")
 
 	// Неизвестная команда
 	default:
-		return fmt.Sprintf("ERROR: unknown command '%s'", command)
+		return protocol.EncodeError(fmt.Sprintf("ERROR: unknown command '%s'", command))
 	}
-
 }
