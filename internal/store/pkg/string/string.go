@@ -26,7 +26,7 @@ func (s *StringStore) Set(key, value string) {
 	defer s.store.Mu.Unlock()
 
 	// 3. Сохраняем значение
-	s.store.Data[key] = core.StringValue(value)
+	s.store.Data[key] = value
 	s.store.Types[key] = core.TypeString
 
 	// 4. Обновляем статистику
@@ -54,7 +54,7 @@ func (s *StringStore) Get(key string) (string, bool) {
 	s.store.UpdateStats(core.GetOp)
 
 	// 5. Возвращаем результат
-	return string(val.(core.StringValue)), true
+	return val.(string), true
 }
 
 func (s *StringStore) Delete(key string) {

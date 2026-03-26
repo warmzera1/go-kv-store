@@ -1,6 +1,8 @@
 package core
 
-import "time"
+import (
+	"time"
+)
 
 type DataType int
 
@@ -26,8 +28,6 @@ func (dt DataType) String() string {
 		return "unknown"
 	}
 }
-
-type StringValue string
 
 // ListValue - структура для хранения списка
 type ListValue struct {

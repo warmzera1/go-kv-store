@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/warmzera1/kv-store/internal/store/core"
+	"github.com/warmzera1/kv-store/internal/store/pkg/admin"
 	"github.com/warmzera1/kv-store/internal/store/pkg/hash"
 	"github.com/warmzera1/kv-store/internal/store/pkg/list"
 	"github.com/warmzera1/kv-store/internal/store/pkg/protocol"
@@ -24,6 +25,7 @@ type Server struct {
 	setCmd    set.SetInterface
 	hashCmd   hash.HashInterface
 	ttlCmd    ttl.TTLInterface
+	adminCmd  admin.AdminInterface
 	listener  net.Listener
 	running   bool
 }
@@ -38,6 +40,7 @@ func New(addr string, s *core.Store) *Server {
 		listCmd:   list.New(s, ttlStore),
 		setCmd:    set.New(s, ttlStore),
 		hashCmd:   hash.New(s, ttlStore),
+		adminCmd:  admin.New(s),
 		ttlCmd:    ttlStore,
 	}
 }
@@ -83,49 +86,6 @@ func (s *Server) Stop() error {
 	}
 	return nil
 }
-
-// func (s *Server) handleConnection(conn net.Conn) {
-// 	// 1. Закрываем соединение при выходе
-// 	defer conn.Close()
-
-// 	reader := bufio.NewReader(conn)
-// 	decoder := protocol.NewDecoder(reader)
-
-// 	// conn.RemoteAddr - адрес клиента (например, 127.0.0.1:5423)
-// 	fmt.Printf("New connection from %s\n", conn.RemoteAddr())
-
-// 	// Создаем сканер для чтения команд построчно
-// 	scanner := bufio.NewScanner(conn)
-
-// 	// Читаем команды, пока соединение окрыто
-// 	for scanner.Scan() {
-
-// 		// Получаем команду (убираем лишние пробелы)
-// 		cmd := strings.TrimSpace(scanner.Text())
-// 		if cmd == "" {
-// 			continue
-// 		}
-
-// 		fmt.Printf("Received from %s: %s\n", conn.RemoteAddr(), cmd)
-
-// 		// Выполняем команду и получаем ответ
-// 		response := s.executeCommand(cmd)
-
-// 		// Отправляем ответ клиенту
-// 		_, err := conn.Write([]byte(response + "\n"))
-// 		if err != nil {
-// 			fmt.Printf("Error writing to %s: %v\n", conn.RemoteAddr(), err)
-// 			break
-// 		}
-// 	}
-
-// 	// Проверяем ошибки сканера
-// 	if err := scanner.Err(); err != nil {
-// 		fmt.Printf("Error reading from %s: %v\n", conn.RemoteAddr(), err)
-// 	}
-
-// 	fmt.Printf("Connection from %s closed\n", conn.RemoteAddr())
-// }
 
 func (s *Server) handleConnection(conn net.Conn) {
 	defer conn.Close()
@@ -552,6 +512,32 @@ func (s *Server) executeCommand(parts []string) string {
 
 		err := s.hashCmd.HDel(key, fields...)
 		if err != nil {
+			return protocol.EncodeError(err.Error())
+		}
+
+		return protocol.EncodeSimpleString("OK")
+
+	// SAVE - сохранить снапшот
+	case "SAVE":
+		filename := "test.gob"
+		if len(parts) > 1 {
+			filename = parts[1]
+		}
+
+		if err := s.adminCmd.SaveSnapshot(filename); err != nil {
+			return protocol.EncodeError(err.Error())
+		}
+
+		return protocol.EncodeSimpleString("OK")
+
+	// LOAD - загрузить файл
+	case "LOAD":
+		filename := "test.gob"
+		if len(parts) > 1 {
+			filename = parts[1]
+		}
+
+		if err := s.adminCmd.LoadSnapshot(filename); err != nil {
 			return protocol.EncodeError(err.Error())
 		}
 
