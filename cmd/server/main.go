@@ -23,7 +23,7 @@ func main() {
 	if err != nil {
 		fmt.Printf("Warning: could not load snapshot: %v\n", err)
 	} else {
-		fmt.Printf("Loaded shapshot from test.gob")
+		fmt.Printf("Loaded shapshot from test.gob\n")
 	}
 
 	// 3. Запускаем TTL очистку

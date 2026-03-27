@@ -103,8 +103,8 @@ type SnapshotData struct {
 // SaveSnapshot - сохраняет текущее состояние в файл
 func (s *Store) SaveSnapshot(filename string) error {
 	// 1. Блокируем для чтения
-	s.Mu.Lock()
-	defer s.Mu.Unlock()
+	s.Mu.RLock()
+	defer s.Mu.RUnlock()
 
 	// 2. Собираем данные для сохранения
 	snap := SnapshotData{

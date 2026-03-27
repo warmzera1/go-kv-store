@@ -524,7 +524,7 @@ func (s *Server) executeCommand(parts []string) string {
 			filename = parts[1]
 		}
 
-		if err := s.adminCmd.SaveSnapshot(filename); err != nil {
+		if err := s.adminCmd.BGSave(filename); err != nil {
 			return protocol.EncodeError(err.Error())
 		}
 
