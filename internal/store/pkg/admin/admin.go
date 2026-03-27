@@ -3,6 +3,7 @@ package admin
 import (
 	"fmt"
 	"sync"
+	"time"
 
 	"github.com/warmzera1/kv-store/internal/store/core"
 )
@@ -53,6 +54,25 @@ func (a *AdminStore) BGSave(filename string) error {
 			fmt.Printf("SAVE completed: %s\n", filename)
 		}
 	}()
+
+	return nil
+}
+
+// Flushdb - очистить kv-store
+func (a *AdminStore) FlushDB() error {
+	// 1. Блокируем хранилище для записи
+	a.store.Mu.Lock()
+	defer a.store.Mu.Unlock()
+
+	// 2. Очищаем все данные из хранилища
+	a.store.Data = make(map[string]interface{})
+	a.store.Expiry = make(map[string]time.Time)
+	a.store.Types = make(map[string]core.DataType)
+
+	// 3. Сбрасываем статистику с защитой
+	a.store.StatsMu.Lock()
+	a.store.Stats = core.Stats{}
+	a.store.StatsMu.Unlock()
 
 	return nil
 }

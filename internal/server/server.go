@@ -543,6 +543,17 @@ func (s *Server) executeCommand(parts []string) string {
 
 		return protocol.EncodeSimpleString("OK")
 
+	// FLUSHDB - очистить данные
+	case "FLUSHDB":
+		if len(parts) != 1 {
+			return protocol.EncodeError("ERR wrong number of arguments for 'flushdb'")
+		}
+		err := s.adminCmd.FlushDB()
+		if err != nil {
+			return protocol.EncodeError(err.Error())
+		}
+
+		return protocol.EncodeSimpleString("OK")
 	// Неизвестная команда
 	default:
 		return protocol.EncodeError(fmt.Sprintf("ERROR: unknown command '%s'", command))
