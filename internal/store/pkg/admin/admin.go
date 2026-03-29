@@ -76,3 +76,20 @@ func (a *AdminStore) FlushDB() error {
 
 	return nil
 }
+
+// Exists - проверить существующие ключ
+func (a *AdminStore) Exists(keys ...string) int {
+	// 1. Блокируем хранилище для чтения
+	a.store.Mu.RLock()
+	defer a.store.Mu.RUnlock()
+
+	// 2. Инициализируем счетчик и проходимся циклу по переданным ключам
+	count := 0
+	for _, key := range keys {
+		if _, exists := a.store.Data[key]; exists {
+			count++
+		}
+	}
+
+	return count
+}

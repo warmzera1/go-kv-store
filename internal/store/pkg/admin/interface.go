@@ -5,4 +5,5 @@ type AdminInterface interface {
 	LoadSnapshot(filename string) error
 	BGSave(filename string) error
 	FlushDB() error
+	Exists(keys ...string) int
 }
