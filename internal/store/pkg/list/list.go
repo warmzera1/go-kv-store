@@ -2,6 +2,7 @@ package list
 
 import (
 	"fmt"
+	"slices"
 
 	"github.com/warmzera1/kv-store/internal/store/core"
 	"github.com/warmzera1/kv-store/internal/store/pkg/ttl"
@@ -31,6 +32,10 @@ func (s *ListStore) LPush(key string, values ...interface{}) error {
 	s.store.Mu.Lock()
 	defer s.store.Mu.Unlock()
 
+	// 1.1 Проверяем, истек ли ключ, если да - удаляем
+	s.ttl.IsExpiredAndClean(key)
+	delete(s.store.Expiry, key)
+
 	// 2. Случай 1 - Ключ уже существует
 	if val, exists := s.store.Data[key]; exists {
 		if s.store.Types[key] != core.TypeList {
@@ -43,6 +48,7 @@ func (s *ListStore) LPush(key string, values ...interface{}) error {
 
 		// 4. Добавляем в начало
 		// Создаем новый срез: сначала все values, потом старые значения
+		slices.Reverse(values)
 		newItems := make([]interface{}, len(values)+len(list.Items))
 
 		// Копируем новые значения в начало
@@ -62,7 +68,8 @@ func (s *ListStore) LPush(key string, values ...interface{}) error {
 	s.store.Data[key] = core.NewList()
 	s.store.Types[key] = core.TypeList
 	list := s.store.Data[key].(*core.ListValue)
-	list.Items = append(list.Items, values...)
+	slices.Reverse(values)
+	list.Items = append(values, list.Items...)
 
 	// 6. Обновляем статистику
 	s.store.UpdateStats(core.SetOp)
@@ -80,6 +87,9 @@ func (s *ListStore) RPush(key string, values ...interface{}) error {
 	// Блокируем для записи
 	s.store.Mu.Lock()
 	defer s.store.Mu.Unlock()
+
+	s.ttl.IsExpiredAndClean(key)
+	delete(s.store.Expiry, key)
 
 	// СЛУЧАЙ 1 - Ключ уже существует
 	if val, exists := s.store.Data[key]; exists {
@@ -183,7 +193,7 @@ func (s *ListStore) LPop(key string) (interface{}, error) {
 	// 5. Получаем список
 	list := val.(*core.ListValue)
 
-	// 6. Проверяем, что не список не пустой
+	// 6. Проверяем, что список не пустой
 	if len(list.Items) == 0 {
 		return nil, fmt.Errorf("list %s is empty", key)
 	}

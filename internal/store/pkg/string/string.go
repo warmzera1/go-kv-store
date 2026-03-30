@@ -25,6 +25,11 @@ func (s *StringStore) Set(key, value string) {
 	s.store.Mu.Lock()
 	defer s.store.Mu.Unlock()
 
+	// 2. Проверяем, истек ли ключ, если да - удаляем
+	s.ttl.IsExpiredAndClean(key)
+
+	delete(s.store.Expiry, key)
+
 	// 3. Сохраняем значение
 	s.store.Data[key] = value
 	s.store.Types[key] = core.TypeString
@@ -65,6 +70,7 @@ func (s *StringStore) Delete(key string) {
 	// 2. Удаляем
 	delete(s.store.Data, key)
 	delete(s.store.Types, key)
+	delete(s.store.Expiry, key)
 
 	// 3. Обновляем статистику
 	s.store.UpdateStats(core.DelOp)
